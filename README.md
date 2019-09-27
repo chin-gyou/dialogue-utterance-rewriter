@@ -14,7 +14,7 @@ The positive dataset used in the ACL 2019 paper, 20000 dialogs. Each line in cor
 
 ## LSTM-based Model
 ### About the code
-This code is based on the [Pointer-Generator](https://github.com/abisee/pointer-generator) code. The Transformer code is not public for some company legal policy reasons.
+This code is based on the [Pointer-Generator](https://github.com/abisee/pointer-generator) code. 
 
 **Requirements**
 
@@ -42,6 +42,7 @@ To run beam search decoding, first set restore_best_model=1 to restore the best 
 sh train.sh
 sh test.sh
 ```
+**Why can't you release the Transformer model?** Due to the company legal policy reasons, we cannot realease the Transformer code which has been used in online environment. However, feel free to email us to discuss training and model details. 
 
 ### Citation
 
