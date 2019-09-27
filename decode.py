@@ -21,7 +21,7 @@ import tensorflow as tf
 import beam_search
 import data
 import json
-import pyrouge
+#import pyrouge
 import util
 import logging
 import numpy as np
@@ -37,11 +37,11 @@ class BeamSearchDecoder(object):
     def __init__(self, model, batcher, vocab):
         """Initialize decoder.
 
-        Args:
-            model: a Seq2SeqAttentionModel object.
-            batcher: a Batcher object.
-            vocab: Vocabulary object
-        """
+    Args:
+      model: a Seq2SeqAttentionModel object.
+      batcher: a Batcher object.
+      vocab: Vocabulary object
+    """
         self._model = model
         self._model.build_graph()
         self._batcher = batcher
@@ -104,15 +104,14 @@ class BeamSearchDecoder(object):
                 return
 
             original_title = batch.original_titles[0]  # string
-	        original_utterance = batch.original_utterances[0]
             original_summarization = batch.original_summarizations[0]  # string
             #original_abstract_sents = batch.original_abstracts_sents[
             #    0]  # list of strings
 
-            #title_withunks = data.show_art_oovs(original_title, self._vocab)
-            #abstract_withunks = data.show_abs_oovs(
-            #    original_summarization, self._vocab,
-            #    (batch.art_oovs[0] if FLAGS.pointer_gen else None))  # string
+            title_withunks = data.show_art_oovs(original_title, self._vocab)
+            abstract_withunks = data.show_abs_oovs(
+                original_summarization, self._vocab,
+                (batch.art_oovs[0] if FLAGS.pointer_gen else None))  # string
 
             # Run beam search to get best Hypothesis
             best_hyp = beam_search.run_beam_search(self._sess, self._model,
@@ -208,10 +207,8 @@ class BeamSearchDecoder(object):
                 original_title.encode('utf-8') + '\t\t' +
                 reference_summarization.encode('utf-8') + '\t\t' +
                 summarization.encode('utf-8') + "\n")
-            f.flush()
 
-        if ex_index % 10 == 0:
-            tf.logging.info("Wrote example %i to file" % ex_index)
+        tf.logging.info("Wrote example %i to file" % ex_index)
 
     def write_for_rouge(self, reference_summarization, decoded_words,
                         ex_index):

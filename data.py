@@ -127,10 +127,10 @@ def sentence2id(sentence, vocab, add_eos=False):
     return ids
 
 
-def title2ids(title_words, vocab):
-    """Map the title words to their ids. Also return a list of OOVs in the title.
+def context2ids(context_words, vocab):
+    """Map the context words to their ids. Also return a list of OOVs in the context.
     Args:
-        title_words: list of words (strings)
+        context_words: list of words (strings)
         vocab: Vocabulary object
     Returns:
       ids:
@@ -142,7 +142,7 @@ def title2ids(title_words, vocab):
     ids = []
     oovs = []
     unk_id = vocab.word2id(MARK_UNK)
-    for w in title_words:
+    for w in context_words:
         i = vocab.word2id(w)
         if i == unk_id:  # If w is OOV
             if w not in oovs:  # Add to list of OOVs
@@ -157,10 +157,10 @@ def title2ids(title_words, vocab):
             ids.append(i)
     return ids, oovs
 
-def utterance2ids(title_words, vocab, oovs):
-    """Map the title words to their ids. Also return a list of OOVs in the title.
+def current2ids(context_words, vocab, oovs):
+    """Map the context words to their ids. Also return a list of OOVs in the context.
     Args:
-        title_words: list of words (strings)
+        context_words: list of words (strings)
         vocab: Vocabulary object
     Returns:
       ids:
@@ -171,7 +171,7 @@ def utterance2ids(title_words, vocab, oovs):
     """
     ids = []
     unk_id = vocab.word2id(MARK_UNK)
-    for w in title_words:
+    for w in context_words:
         i = vocab.word2id(w)
         if i == unk_id:  # If w is OOV
             if w not in oovs:  # Add to list of OOVs
@@ -186,12 +186,12 @@ def utterance2ids(title_words, vocab, oovs):
             ids.append(i)
     return ids, oovs
 
-def summarization2ids(summarization_words, vocab, title_oovs):
+def summarization2ids(summarization_words, vocab, context_oovs):
     """Map the abstract words to their ids. In-article OOVs are mapped to their temporary OOV numbers.
     Args:
         summarization_words: list of words (strings)
         vocab: Vocabulary object
-        title_oovs: list of in-article OOV words (strings), in the order corresponding to their temporary article OOV numbers
+        context_oovs: list of in-article OOV words (strings), in the order corresponding to their temporary article OOV numbers
     Returns:
         ids: List of ids (integers).
         In-article OOV words are mapped to their temporary OOV numbers.
@@ -202,8 +202,8 @@ def summarization2ids(summarization_words, vocab, title_oovs):
     for w in summarization_words:
         i = vocab.word2id(w)
         if i == unk_id:  # If w is an OOV word
-            if w in title_oovs:  # If w is an in-article OOV
-                vocab_idx = vocab.size() + title_oovs.index(
+            if w in context_oovs:  # If w is an in-article OOV
+                vocab_idx = vocab.size() + context_oovs.index(
                     w)  # Map to its temporary article OOV number
                 ids.append(vocab_idx)
             else:  # If w is an out-of-article OOV

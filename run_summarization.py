@@ -36,7 +36,7 @@ tf.app.flags.DEFINE_boolean(
     'If False (default), run concurrent decoding, i.e. repeatedly load latest checkpoint, '\
     'use it to produce summaries for randomly-chosen examples and log the results to screen, indefinitely.'
 )
-tf.app.flags.DEFINE_string('encoder_type', 'bi', 'encode type')
+
 # Where to save output
 tf.app.flags.DEFINE_string('log_root', './log',
                            'Root directory for all logging.')
@@ -52,7 +52,7 @@ tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
 tf.app.flags.DEFINE_integer('batch_size', 64, 'minibatch size')
 tf.app.flags.DEFINE_integer(
     'max_enc_steps', 50, 'max timesteps of encoder (max source text tokens)')
-tf.app.flags.DEFINE_integer('max_dec_steps', 30,
+tf.app.flags.DEFINE_integer('max_dec_steps', 12,
                             'max timesteps of decoder (max summary tokens)')
 tf.app.flags.DEFINE_integer('beam_size', 4,
                             'beam size for beam search decoding.')
@@ -247,6 +247,16 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
         while True:  # repeats until interrupted
             batch = batcher.next_batch()
 
+            convert_sentences_to_idsmasks(batch.enc_batch, batch.e)
+
+            bert_model = modeling.BertModel(
+                config=bert_config,
+                is_training=is_training,
+                input_ids=batch.enc_batch,
+                input_mask=input_mask,
+                token_type_ids=segment_ids,
+                use_one_hot_embeddings=use_one_hot_embeddings
+            )
             tf.logging.info('running training step...')
             t0 = time.time()
             results = model.run_train_step(sess, batch)
@@ -370,7 +380,7 @@ def main(unused_argv):
     hparam_list = [
         'mode', 'learning_rate', 'adagrad_init_acc', 'rand_unif_init_mag',
         'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim',
-        'batch_size','encoder_type', 'max_dec_steps', 'max_enc_steps', 'coverage',
+        'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage',
         'cov_loss_wt', 'pointer_gen'
     ]
     hps_dict = {}

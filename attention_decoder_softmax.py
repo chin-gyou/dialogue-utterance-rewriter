@@ -16,9 +16,9 @@ def attention_decoder(decoder_inputs,
                       initial_state,
                       encoder_states,
                       enc_padding_mask,
-                      utterance_rep,
-                      utterance_states,
-                      utterance_padding_mask,
+                      brand_rep,
+                      brand_states,
+                      brand_padding_mask,
                       cell,
                       initial_state_attention=False,
                       pointer_gen=True,
@@ -122,7 +122,7 @@ def attention_decoder(decoder_inputs,
 
         outputs = []
         title_attn_dists = []
-        utterance_attn_dists = []
+        brand_attn_dists = []
         p_ts = []
         p_bs = []
         state = initial_state
@@ -130,16 +130,16 @@ def attention_decoder(decoder_inputs,
         t_cv = array_ops.zeros([batch_size, encoder_states.get_shape()[2].value])
         t_cv.set_shape([None, encoder_states.get_shape()[2].value])
 
-        b_cv = array_ops.zeros([batch_size, utterance_states.get_shape()[2].value])
-        b_cv.set_shape([None, utterance_states.get_shape()[2].value])
+        b_cv = array_ops.zeros([batch_size, brand_states.get_shape()[2].value])
+        b_cv.set_shape([None, brand_states.get_shape()[2].value])
 
         if initial_state_attention:  # true in decode mode
             # Re-calculate the context vector from the previous step
             # so that we can pass it through a linear layer
             # with this step's input to get a modified version of the input
             # in decode mode, this is what updates the coverage vector
-            t_cv, _, coverage = attention(encoder_states, enc_padding_mask, [initial_state.c, initial_state.h] + [utterance_rep], 'TitleAttention', coverage)
-            b_cv, _, coverage = attention(utterance_states, utterance_padding_mask, initial_state, 'utteranceAttention', coverage)
+            t_cv, _, coverage = attention(encoder_states, enc_padding_mask, [initial_state.c, initial_state.h] + [brand_rep], 'TitleAttention', coverage)
+            b_cv, _, coverage = attention(brand_states, brand_padding_mask, initial_state, 'BrandAttention', coverage)
 
         for i, inp in enumerate(decoder_inputs):
             tf.logging.info("Adding attention_decoder timestep %i of %i", i,
@@ -152,7 +152,7 @@ def attention_decoder(decoder_inputs,
             if input_size.value is None:
                 raise ValueError(
                     "Could not infer input size from input: %s" % inp.name)
-            x = linear([inp] + [t_cv] + [utterance_rep], input_size, True)
+            x = linear([inp] + [t_cv] + [brand_rep], input_size, True)
 
             # Run the decoder RNN cell. cell_output = decoder state
             cell_output, state = cell(x, state)
@@ -163,14 +163,14 @@ def attention_decoder(decoder_inputs,
                         variable_scope.get_variable_scope(), reuse=True):  
                     # you need this because you've already run the initial attention(...) call
                     # don't allow coverage to update
-                    t_cv, t_attn_dist, coverage = attention(encoder_states, enc_padding_mask, [state.c, state.h] + [utterance_rep], 'TitleAttention', coverage)
-                    b_cv, b_attn_dist, coverage = attention(utterance_states, utterance_padding_mask, state, 'utteranceAttention', coverage)
+                    t_cv, t_attn_dist, coverage = attention(encoder_states, enc_padding_mask, [state.c, state.h] + [brand_rep], 'TitleAttention', coverage)
+                    b_cv, b_attn_dist, coverage = attention(brand_states, brand_padding_mask, state, 'BrandAttention', coverage)
             else:
-                t_cv, t_attn_dist, coverage = attention(encoder_states, enc_padding_mask, [state.c, state.h] + [utterance_rep], 'TitleAttention', coverage)
-                b_cv, b_attn_dist, coverage = attention(utterance_states, utterance_padding_mask, state, 'utteranceAttention', coverage)
+                t_cv, t_attn_dist, coverage = attention(encoder_states, enc_padding_mask, [state.c, state.h] + [brand_rep], 'TitleAttention', coverage)
+                b_cv, b_attn_dist, coverage = attention(brand_states, brand_padding_mask, state, 'BrandAttention', coverage)
 
             title_attn_dists.append(t_attn_dist)
-            #utterance_attn_dists.append(b_attn_dist)
+            #brand_attn_dists.append(b_attn_dist)
 
             calculate probability for each encoder
             with tf.variable_scope('calculate_encoder_prob'):
@@ -189,7 +189,7 @@ def attention_decoder(decoder_inputs,
         if coverage is not None:
             coverage = array_ops.reshape(coverage, [batch_size, -1])
 
-        return outputs, state, title_attn_dists, utterance_attn_dists, p_ts, p_bs, coverage
+        return outputs, state, title_attn_dists, brand_attn_dists, p_ts, p_bs, coverage
 
 
 def linear(args, output_size, bias, bias_start=0.0, scope=None):

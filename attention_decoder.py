@@ -16,8 +16,8 @@ def attention_decoder(decoder_inputs,
                       initial_state,
                       encoder_states,
                       enc_padding_mask,
-                      utterance_states,
-                      utterance_padding_mask,
+                      brand_states,
+                      brand_padding_mask,
                       cell,
                       initial_state_attention=False,
                       pointer_gen=True,
@@ -154,7 +154,7 @@ def attention_decoder(decoder_inputs,
 
         outputs = []
         title_attn_dists = []
-        utterance_attn_dists = []
+        brand_attn_dists = []
         p_ts = []
         p_bs = []
         state = initial_state
@@ -163,8 +163,8 @@ def attention_decoder(decoder_inputs,
 
         t_cv = array_ops.zeros([batch_size, encoder_states.get_shape()[2].value])
         t_cv.set_shape([None, encoder_states.get_shape()[2].value])
-        b_cv = array_ops.zeros([batch_size, utterance_states.get_shape()[2].value])
-        b_cv.set_shape([None, utterance_states.get_shape()[2].value])
+        b_cv = array_ops.zeros([batch_size, brand_states.get_shape()[2].value])
+        b_cv.set_shape([None, brand_states.get_shape()[2].value])
         min_p = tf.zeros([batch_size, 1])
         max_p = tf.ones([batch_size, 1])
 
@@ -173,7 +173,7 @@ def attention_decoder(decoder_inputs,
             # so that we can pass it through a linear layer
             # with this step's input to get a modified version of the input
             # in decode mode, this is what updates the coverage vector
-            b_cv, _, b_coverage = attention(utterance_states, utterance_padding_mask, initial_state, 'utteranceAttention', b_coverage)
+            b_cv, _, b_coverage = attention(brand_states, brand_padding_mask, initial_state, 'BrandAttention', b_coverage)
             t_cv, _, t_coverage = attention(encoder_states, enc_padding_mask, [initial_state.c, initial_state.h, b_cv], 'TitleAttention', t_coverage)
 
         for i, inp in enumerate(decoder_inputs):
@@ -198,10 +198,10 @@ def attention_decoder(decoder_inputs,
                         variable_scope.get_variable_scope(), reuse=True):  
                     # you need this because you've already run the initial attention(...) call
                     # don't allow coverage to update
-                    b_cv, b_attn_dist, b_coverage = attention(utterance_states, utterance_padding_mask, state, 'utteranceAttention', b_coverage)
+                    b_cv, b_attn_dist, b_coverage = attention(brand_states, brand_padding_mask, state, 'BrandAttention', b_coverage)
                     t_cv, t_attn_dist, t_coverage = attention(encoder_states, enc_padding_mask, [state.c, state.h, b_cv], 'TitleAttention', t_coverage)
             else:
-                b_cv, b_attn_dist, b_coverage = attention(utterance_states, utterance_padding_mask, state, 'utteranceAttention', b_coverage)
+                b_cv, b_attn_dist, b_coverage = attention(brand_states, brand_padding_mask, state, 'BrandAttention', b_coverage)
                 t_cv, t_attn_dist, t_coverage = attention(encoder_states, enc_padding_mask, [state.c, state.h, b_cv], 'TitleAttention', t_coverage)
 
             with tf.variable_scope('calculate_prob'):
@@ -223,7 +223,7 @@ def attention_decoder(decoder_inputs,
             t_attn_dist = tf.multiply(p_t, t_attn_dist)
 
             title_attn_dists.append(t_attn_dist)
-            utterance_attn_dists.append(b_attn_dist)
+            brand_attn_dists.append(b_attn_dist)
 
             # Concatenate the cell_output (= decoder state) and the context vector, and pass them through a linear layer
             # This is V[s_t, h*_t] + b in the paper
@@ -237,7 +237,7 @@ def attention_decoder(decoder_inputs,
             b_coverage = array_ops.reshape(b_coverage, [batch_size, -1])
 
 
-        return outputs, state, title_attn_dists, utterance_attn_dists, p_ts, p_bs, t_coverage, b_coverage
+        return outputs, state, title_attn_dists, brand_attn_dists, p_ts, p_bs, t_coverage, b_coverage
 
 
 def linear(args, output_size, bias, bias_start=0.0, scope=None):

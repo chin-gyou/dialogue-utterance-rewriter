@@ -1,10 +1,10 @@
-CUDA_VISIBLE_DEVICES=3 python run_summarization.py\
+CUDA_VISIBLE_DEVICES=1 python run_summarization.py\
     --mode=eval \
-    --data_path=../data/val_clean.txt \
-    --vocab_path=../data/vocab.txt \
+    --data_path=../data/extractive_data/val.txt \
+    --vocab_path=../data/extractive_data/vocab.txt \
     --log_root=./log \
     --exp_name=extractive \
-    --vocab_size=4000 \
+    --vocab_size=30000 \
     --coverage=0 \
     --batch_size=128 \
     --convert_to_coverage_model=0 \
