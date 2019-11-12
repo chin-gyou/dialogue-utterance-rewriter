@@ -37,13 +37,13 @@ class SummarizationModel(object):
         self._enc_padding_mask = tf.placeholder(
             tf.float32, [hps.batch_size, None], name='enc_padding_mask')
 
-        # current part
-        self._current_batch = tf.placeholder(
-            tf.int32, [hps.batch_size, None], name='current_batch')
-        self._current_lens = tf.placeholder(
-            tf.int32, [hps.batch_size], name='current_lens')
-        self._current_padding_mask = tf.placeholder(
-            tf.float32, [hps.batch_size, None], name='current_padding_mask')
+        # query part
+        self._query_batch = tf.placeholder(
+            tf.int32, [hps.batch_size, None], name='query_batch')
+        self._query_lens = tf.placeholder(
+            tf.int32, [hps.batch_size], name='query_lens')
+        self._query_padding_mask = tf.placeholder(
+            tf.float32, [hps.batch_size, None], name='query_padding_mask')
         
         if FLAGS.pointer_gen:
             self._enc_batch_extend_vocab = tf.placeholder(
@@ -51,9 +51,9 @@ class SummarizationModel(object):
                 name='enc_batch_extend_vocab')
             self._max_art_oovs = tf.placeholder(
                 tf.int32, [], name='max_art_oovs')
-            self._current_batch_extend_vocab = tf.placeholder(
+            self._query_batch_extend_vocab = tf.placeholder(
                 tf.int32, [hps.batch_size, None],
-                name='current_batch_extend_vocab')
+                name='query_batch_extend_vocab')
 
         # decoder part
         self._dec_batch = tf.placeholder(
@@ -82,12 +82,12 @@ class SummarizationModel(object):
         feed_dict[self._enc_lens] = batch.enc_lens
         feed_dict[self._enc_padding_mask] = batch.enc_padding_mask
 
-        feed_dict[self._current_batch] = batch.current_batch
-        feed_dict[self._current_lens] = batch.current_lens
-        feed_dict[self._current_padding_mask] = batch.current_padding_mask
+        feed_dict[self._query_batch] = batch.query_batch
+        feed_dict[self._query_lens] = batch.query_lens
+        feed_dict[self._query_padding_mask] = batch.query_padding_mask
 
         feed_dict[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
-        feed_dict[self._current_batch_extend_vocab] = batch.current_batch_extend_vocab
+        feed_dict[self._query_batch_extend_vocab] = batch.query_batch_extend_vocab
         feed_dict[self._max_art_oovs] = batch.max_art_oovs
 
         if not just_enc:
@@ -231,15 +231,15 @@ class SummarizationModel(object):
             prev_t_coverage = None
             prev_b_coverage = None
 
-        #todo: 添加 current， 
-        outputs, out_state, context_attn_dists, current_attn_dists, p_ts, p_bs, t_coverage, b_coverage = attention_decoder(
+        #todo: 添加 query， 
+        outputs, out_state, context_attn_dists, query_attn_dists, p_ts, p_bs, t_coverage, b_coverage = attention_decoder(
             inputs,
             self._dec_in_state,
             self._enc_states,
             self._enc_padding_mask,
-            #self._current_rep,
-            self._current_states,
-            self._current_padding_mask,
+            #self._query_rep,
+            self._query_states,
+            self._query_padding_mask,
             cell,
             initial_state_attention=(hps.mode == "decode"),
             pointer_gen=hps.pointer_gen,
@@ -247,9 +247,9 @@ class SummarizationModel(object):
             prev_t_coverage=prev_t_coverage,
             prev_b_coverage=prev_b_coverage)
 
-        return outputs, out_state, context_attn_dists, current_attn_dists, p_ts, p_bs, t_coverage, b_coverage
+        return outputs, out_state, context_attn_dists, query_attn_dists, p_ts, p_bs, t_coverage, b_coverage
 
-    def _calc_final_dist(self, context_attn_dists, current_attn_dists):
+    def _calc_final_dist(self, context_attn_dists, query_attn_dists):
         """Calculate the final distribution, for the pointer-generator model
 
         Args:
@@ -266,18 +266,18 @@ class SummarizationModel(object):
         with tf.variable_scope('final_distribution'):
             # context_attn_dists = [tf.multiply(tf.slice(p_t, [0, 0], [-1, 1]), dist)
             #             for (p_t, dist) in zip(self.p_ts, context_attn_dists)]
-            # current_attn_dists = [tf.multiply(tf.slice(p_t, [0, 1], [-1, 1]), dist)
-            #             for (p_t, dist) in zip(self.p_ts, current_attn_dists)]
+            # query_attn_dists = [tf.multiply(tf.slice(p_t, [0, 1], [-1, 1]), dist)
+            #             for (p_t, dist) in zip(self.p_ts, query_attn_dists)]
 
             # context_attn_dists = [tf.multiply(p_t, dist)
             #             for (p_t, dist) in zip(self.p_ts, context_attn_dists)]
-            # current_attn_dists = [tf.multiply(p_b, dist)
-            #             for (p_b, dist) in zip(self.p_bs, current_attn_dists)]
+            # query_attn_dists = [tf.multiply(p_b, dist)
+            #             for (p_b, dist) in zip(self.p_bs, query_attn_dists)]
 
             # context_attn_dists = [tf.slice(p_t, [0, 0], [-1, 1]) * dist
             #             for (p_t, dist) in zip(self.p_ts, context_attn_dists)]
-            # current_attn_dists = [tf.slice(p_t, [0, 1], [-1, 1]) * dist
-            #             for (p_t, dist) in zip(self.p_ts, current_attn_dists)]
+            # query_attn_dists = [tf.slice(p_t, [0, 1], [-1, 1]) * dist
+            #             for (p_t, dist) in zip(self.p_ts, query_attn_dists)]
 
             # Concatenate some zeros to each vocabulary dist,
             # to hold the probabilities for in-article OOV words
@@ -306,21 +306,21 @@ class SummarizationModel(object):
                 for copy_dist in context_attn_dists
             ]
 
-            current_attn_len = tf.shape(self._current_batch_extend_vocab)[1]
+            query_attn_len = tf.shape(self._query_batch_extend_vocab)[1]
             # shape (batch_size, attn_len)
-            current_batch_nums = tf.tile(batch_nums, [1, current_attn_len])
+            query_batch_nums = tf.tile(batch_nums, [1, query_attn_len])
             # shape (batch_size, enc_t, 2)
-            current_indices = tf.stack((current_batch_nums, self._current_batch_extend_vocab), axis=2)
+            query_indices = tf.stack((query_batch_nums, self._query_batch_extend_vocab), axis=2)
 
-            current_attn_dists_projected = [
-                tf.scatter_nd(current_indices, copy_dist, shape)
-                for copy_dist in current_attn_dists
+            query_attn_dists_projected = [
+                tf.scatter_nd(query_indices, copy_dist, shape)
+                for copy_dist in query_attn_dists
             ]
 
             final_dists = [
-                context_dist + current_dist
-                for (context_dist, current_dist) \
-                in zip(context_attn_dists_projected, current_attn_dists_projected)
+                context_dist + query_dist
+                for (context_dist, query_dist) \
+                in zip(context_attn_dists_projected, query_attn_dists_projected)
             ]
 
             return final_dists
@@ -353,8 +353,6 @@ class SummarizationModel(object):
                 -hps.rand_unif_init_mag, hps.rand_unif_init_mag, seed=42)
             self.trunc_norm_init = tf.truncated_normal_initializer(
                 stddev=hps.trunc_norm_init_std)
-            import tensorflow as tf
-            from bert_base.bert import modeling
 
             # Add embedding matrix (shared by the encoder and decoder inputs)
             with tf.variable_scope('embedding'):
@@ -366,7 +364,7 @@ class SummarizationModel(object):
                     self._add_emb_vis(embedding)
                 # tensor with shape (batch_size, max_enc_steps, emb_size)
                 emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch)
-                emb_current_inputs = tf.nn.embedding_lookup(embedding, self._current_batch)
+                emb_query_inputs = tf.nn.embedding_lookup(embedding, self._query_batch)
 
                 # list length max_dec_steps containing shape (batch_size, emb_size)
                 emb_dec_inputs = [
@@ -378,25 +376,25 @@ class SummarizationModel(object):
              # Add the encoder.
             enc_outputs, context_state = self._add_encoder(emb_enc_inputs, self._enc_lens, 'encoder')
             
-            #todo: Add the current encoder.
-            current_outputs, current_state = self._add_encoder(emb_current_inputs, self._current_lens, 'encoder', True)
+            #todo: Add the query encoder.
+            query_outputs, query_state = self._add_encoder(emb_query_inputs, self._query_lens, 'encoder', True)
 
             self._enc_states = enc_outputs
-            self._current_states = current_outputs
-            self._current_rep = current_state
-            self._dec_in_state = self._reduce_states(context_state, current_state, 'reduce_final_st')
+            self._query_states = query_outputs
+            self._query_rep = query_state
+            self._dec_in_state = self._reduce_states(context_state, query_state, 'reduce_final_st')
 
             # Add the decoder.
             with tf.variable_scope('decoder'):
                 decoder_outputs, self._dec_out_state, self.context_attn_dists, \
-                self.current_attn_dists, self.p_ts, self.p_bs, \
+                self.query_attn_dists, self.p_ts, self.p_bs, \
                 self.t_coverage, self.b_coverage = self._add_decoder(emb_dec_inputs)
 
-                # self.current_attn_dists = [tf.multiply(p_b, dist)
-                #         for (p_b, dist) in zip(self.p_bs, self.current_attn_dists)]
+                # self.query_attn_dists = [tf.multiply(p_b, dist)
+                #         for (p_b, dist) in zip(self.p_bs, self.query_attn_dists)]
 
             # For pointer model, calc final distribution from copy distribution
-            final_dists = self._calc_final_dist(self.context_attn_dists, self.current_attn_dists)
+            final_dists = self._calc_final_dist(self.context_attn_dists, self.query_attn_dists)
 
         self.final_dists = final_dists
 
@@ -446,7 +444,7 @@ class SummarizationModel(object):
                     t_coverage_loss = _coverage_loss(
                         self.context_attn_dists, self._dec_padding_mask)
                     b_coverage_loss = _coverage_loss(
-                        self.current_attn_dists, self._dec_padding_mask)
+                        self.query_attn_dists, self._dec_padding_mask)
 
                     self._coverage_loss = t_coverage_loss + b_coverage_loss
                     tf.summary.scalar('coverage_loss', self._coverage_loss)
@@ -534,8 +532,8 @@ class SummarizationModel(object):
         """
         # feed the batch into the placeholders
         feed_dict = self._make_feed_dict(batch, just_enc=True)
-        (enc_states, current_states, dec_in_state, global_step) = sess.run(
-            [self._enc_states, self._current_states, self._dec_in_state, self.global_step],
+        (enc_states, query_states, dec_in_state, global_step) = sess.run(
+            [self._enc_states, self._query_states, self._dec_in_state, self.global_step],
             feed_dict)
 
         # dec_in_state is LSTMStateTuple shape ([batch_size,hidden_dim],[batch_size,hidden_dim])
@@ -547,9 +545,9 @@ class SummarizationModel(object):
             dec_in_state = tf.contrib.rnn.LSTMStateTuple(
                 dec_in_state.c, dec_in_state.h)
 
-        return enc_states, current_states, dec_in_state
+        return enc_states, query_states, dec_in_state
 
-    def decode_onestep(self, sess, batch, latest_tokens, enc_states, current_states,
+    def decode_onestep(self, sess, batch, latest_tokens, enc_states, query_states,
                        dec_init_states, prev_t_coverage, prev_b_coverage):
         """For beam search decoding. Run the decoder for one step.
 
@@ -586,8 +584,8 @@ class SummarizationModel(object):
         feed = {
             self._enc_states: enc_states,
             self._enc_padding_mask: batch.enc_padding_mask,
-            self._current_states: current_states,
-            self._current_padding_mask: batch.current_padding_mask,
+            self._query_states: query_states,
+            self._query_padding_mask: batch.query_padding_mask,
             self._dec_in_state: new_dec_in_state,
             self._dec_batch: np.transpose(np.array([latest_tokens])),
         }
@@ -596,13 +594,13 @@ class SummarizationModel(object):
             "ids": self._topk_ids,
             "probs": self._topk_log_probs,
             "states": self._dec_out_state,
-            "attn_dists": self.context_attn_dists, #todo: 需要修改，可视化对应部分，需要改为context，current
-            #"current_attn_dists": self.current_attn_dists,
+            "attn_dists": self.context_attn_dists, #todo: 需要修改，可视化对应部分，需要改为context，query
+            #"query_attn_dists": self.query_attn_dists,
             "p_ts": self.p_ts
         }
 
         feed[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
-        feed[self._current_batch_extend_vocab] = batch.current_batch_extend_vocab
+        feed[self._query_batch_extend_vocab] = batch.query_batch_extend_vocab
         feed[self._max_art_oovs] = batch.max_art_oovs
 
         if self._hps.coverage:
