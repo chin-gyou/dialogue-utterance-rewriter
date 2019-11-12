@@ -157,7 +157,7 @@ def context2ids(context_words, vocab):
             ids.append(i)
     return ids, oovs
 
-def current2ids(context_words, vocab, oovs):
+def query2ids(context_words, vocab, oovs):
     """Map the context words to their ids. Also return a list of OOVs in the context.
     Args:
         context_words: list of words (strings)
