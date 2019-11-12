@@ -4,9 +4,11 @@
 Dataset for ACL 2019 paper "[Improving Multi-turn Dialogue Modelling with Utterance ReWriter
 ](https://arxiv.org/abs/1906.07004)"
 
+After another two months of human labeling, We release a much more better quality dataset(only positive samples) than the original one we used in our paper for better research.
+
 ### Description
 
-The positive dataset used in the ACL 2019 paper, 20000 dialogs. Each line in corpus.txt consists of four utterances of dialog (two context utterances, current utterance), and the rewritten uterance. Each line is `tab-delimited` (one tab) with the following format:
+The positive dataset, 20000 dialogs. Each line in corpus.txt consists of four utterances of dialog (two context utterances, current utterance), and the rewritten uterance. Each line is `tab-delimited` (one tab) with the following format:
 
 ```bash
 <A: context_1>\t<B: context_2>\t<A: current>\t<A: A: rewritten current>
