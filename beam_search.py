@@ -28,7 +28,7 @@ class Hypothesis(object):
     Holds all the information needed for the hypothesis.
     """
 
-    def __init__(self, tokens, log_probs, state, attn_dists, coverage):
+    def __init__(self, tokens, log_probs, state, attn_dists, t_coverage, b_coverage):
         """Hypothesis constructor.
 
         Args:
@@ -42,9 +42,10 @@ class Hypothesis(object):
         self.log_probs = log_probs
         self.state = state
         self.attn_dists = attn_dists
-        self.coverage = coverage
+        self.t_coverage = t_coverage
+        self.b_coverage = b_coverage
 
-    def extend(self, token, log_prob, state, attn_dist, coverage):
+    def extend(self, token, log_prob, state, attn_dist, t_coverage, b_coverage):
         """Return a NEW hypothesis, extended with the information from the latest step of beam search.
 
         Args:
@@ -61,7 +62,8 @@ class Hypothesis(object):
             log_probs=self.log_probs + [log_prob],
             state=state,
             attn_dists=self.attn_dists + [attn_dist],
-            coverage=coverage)
+            t_coverage=t_coverage,
+            b_coverage=b_coverage)
 
     @property
     def latest_token(self):
@@ -91,7 +93,7 @@ def run_beam_search(sess, model, vocab, batch):
         best_hyp: Hypothesis object; the best hypothesis found by beam search.
     """
     # Run the encoder to get the encoder hidden states and decoder initial state
-    enc_states, dec_in_state = model.run_encoder(sess, batch)
+    enc_states, query_states, dec_in_state = model.run_encoder(sess, batch)
     # dec_in_state is a LSTMStateTuple
     # enc_states has shape [batch_size, <=max_enc_steps, 2*hidden_dim].
 
@@ -103,7 +105,9 @@ def run_beam_search(sess, model, vocab, batch):
             state=dec_in_state,
             attn_dists=[],
             # zero vector of length attention_length
-            coverage=np.zeros([batch.enc_batch.shape[1]]))
+            t_coverage=np.zeros([batch.enc_batch.shape[1]]),
+            b_coverage=np.zeros([batch.query_batch.shape[1]])
+            )
         for _ in xrange(FLAGS.beam_size)
     ]
     # this will contain finished hypotheses (those that have emitted the [STOP] token)
@@ -121,17 +125,20 @@ def run_beam_search(sess, model, vocab, batch):
         # list of current decoder states of the hypotheses
         states = [h.state for h in hyps]
         # list of coverage vectors (or None)
-        prev_coverage = [h.coverage for h in hyps]
+        prev_t_coverage = [h.t_coverage for h in hyps]
+        prev_b_coverage = [h.b_coverage for h in hyps]
 
         # Run one step of the decoder to get the new info
         (topk_ids, topk_log_probs, new_states, attn_dists,
-         new_coverage) = model.decode_onestep(
+         new_t_coverage, new_b_coverage) = model.decode_onestep(
              sess=sess,
              batch=batch,
              latest_tokens=latest_tokens,
              enc_states=enc_states,
+             query_states=query_states,
              dec_init_states=states,
-             prev_coverage=prev_coverage)
+             prev_t_coverage=prev_t_coverage,
+             prev_b_coverage=prev_b_coverage)
 
         # Extend each hypothesis and collect them all in all_hyps
         all_hyps = []
@@ -140,8 +147,8 @@ def run_beam_search(sess, model, vocab, batch):
         num_orig_hyps = 1 if steps == 0 else len(hyps)
         for i in xrange(num_orig_hyps):
             # take the ith hypothesis and new decoder state info
-            h, new_state, attn_dist, new_coverage_i = hyps[i], new_states[
-                i], attn_dists[i], new_coverage[i]
+            h, new_state, attn_dist, new_t_coverage_i, new_b_coverage_i = hyps[i], new_states[
+                i], attn_dists[i], new_t_coverage[i], new_b_coverage[i]
             # for each of the top 2*beam_size hyps:
             for j in xrange(FLAGS.beam_size * 2):
                 # Extend the ith hypothesis with the jth option
@@ -150,7 +157,8 @@ def run_beam_search(sess, model, vocab, batch):
                     log_prob=topk_log_probs[i, j],
                     state=new_state,
                     attn_dist=attn_dist,
-                    coverage=new_coverage_i)
+                    t_coverage=new_t_coverage_i,
+                    b_coverage=new_b_coverage_i)
                 all_hyps.append(new_hyp)
 
         # Filter and collect any hypotheses that have produced the end token.
@@ -178,7 +186,7 @@ def run_beam_search(sess, model, vocab, batch):
 
     # Sort hypotheses by average log probability
     hyps_sorted = sort_hyps(results)
-
+   # tensor_sorted = tf.convert_to_tensor(hyps_sorted[0]) 
     # Return the hypothesis with highest average log prob
     return hyps_sorted[0]
 
