@@ -37,11 +37,11 @@ class BeamSearchDecoder(object):
     def __init__(self, model, batcher, vocab):
         """Initialize decoder.
 
-    Args:
-      model: a Seq2SeqAttentionModel object.
-      batcher: a Batcher object.
-      vocab: Vocabulary object
-    """
+        Args:
+            model: a Seq2SeqAttentionModel object.
+            batcher: a Batcher object.
+            vocab: Vocabulary object
+        """
         self._model = model
         self._model.build_graph()
         self._batcher = batcher
@@ -103,20 +103,22 @@ class BeamSearchDecoder(object):
                 # rouge_log(results_dict, self._decode_dir)
                 return
 
-            original_title = batch.original_titles[0]  # string
+            original_context = batch.original_contexts[0]  # string
+	    original_query = batch.original_querys[0]
             original_summarization = batch.original_summarizations[0]  # string
             #original_abstract_sents = batch.original_abstracts_sents[
             #    0]  # list of strings
 
-            title_withunks = data.show_art_oovs(original_title, self._vocab)
-            abstract_withunks = data.show_abs_oovs(
-                original_summarization, self._vocab,
-                (batch.art_oovs[0] if FLAGS.pointer_gen else None))  # string
+            #context_withunks = data.show_art_oovs(original_context, self._vocab)
+            #abstract_withunks = data.show_abs_oovs(
+            #    original_summarization, self._vocab,
+            #    (batch.art_oovs[0] if FLAGS.pointer_gen else None))  # string
 
             # Run beam search to get best Hypothesis
             best_hyp = beam_search.run_beam_search(self._sess, self._model,
                                                    self._vocab, batch)
 
+          #  export_path = os.path.join(FLAGS.export_dir,str(FLAGS.export_version))
             # Extract the output ids from the hypothesis and convert back to words
             output_ids = [int(t) for t in best_hyp.tokens[1:]]
             decoded_words = data.outputids2words(
@@ -135,17 +137,17 @@ class BeamSearchDecoder(object):
             if FLAGS.single_pass:
                 #todo: need to check
                 # write ref summary and decoded summary to file, to eval with pyrouge later
-                self.write_result(original_title, original_summarization,
+                self.write_result(original_context, original_summarization,
                                   decoded_words, counter)
                 # self.write_for_eval(original_summarization, output_ids,
                 #                     counter)
                 counter += 1  # this is how many examples we've decoded
             else:
                 # log output to screen
-                print_results(title_withunks, abstract_withunks,
+                print_results(context_withunks, abstract_withunks,
                               decoded_output)
                 # write info to .json file for visualization tool
-                self.write_for_attnvis(title_withunks, abstract_withunks,
+                self.write_for_attnvis(context_withunks, abstract_withunks,
                                        decoded_words, best_hyp.attn_dists)
 
                 # Check if SECS_UNTIL_NEW_CKPT has elapsed;
@@ -187,7 +189,7 @@ class BeamSearchDecoder(object):
 
         tf.logging.info("Wrote example %i to file" % ex_index)
 
-    def write_result(self, original_title, reference_summarization,
+    def write_result(self, original_context, reference_summarization,
                      decoded_words, ex_index):
         """
         Write output to file.
@@ -204,11 +206,13 @@ class BeamSearchDecoder(object):
 
         with open(result_file, 'a') as f:
             f.write(
-                original_title.encode('utf-8') + '\t\t' +
+                original_context.encode('utf-8') + '\t\t' +
                 reference_summarization.encode('utf-8') + '\t\t' +
                 summarization.encode('utf-8') + "\n")
+            f.flush()
 
-        tf.logging.info("Wrote example %i to file" % ex_index)
+        if ex_index % 10 == 0:
+            tf.logging.info("Wrote example %i to file" % ex_index)
 
     def write_for_rouge(self, reference_summarization, decoded_words,
                         ex_index):
@@ -250,7 +254,7 @@ class BeamSearchDecoder(object):
             decoded_words: List of strings; the words of the generated summary.
         """
         to_write = {
-            'origin_title': make_html_safe(article),
+            'origin_context': make_html_safe(article),
             'decoded_sum': make_html_safe(''.join(decoded_words)),
             'summarization': make_html_safe(abstract),
             'attn_dists': attn_dists
