@@ -4,7 +4,7 @@
 Dataset for ACL 2019 paper "[Improving Multi-turn Dialogue Modelling with Utterance ReWriter
 ](https://arxiv.org/abs/1906.07004)"
 
-After another two months of human labeling, We release a much more better quality dataset(only positive samples) than the original one we used in our paper for better research.
+After another two months of human labeling, we release a much more better quality dataset(only positive samples) than the original one we used in our paper for better research.
 
 ### Description
 
