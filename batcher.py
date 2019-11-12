@@ -1,19 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
-# Modifications Copyright 2017 Abigail See
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
+# todo: query可能是"无"
 """This file contains code to process data into batches"""
 
 import Queue
@@ -23,18 +9,18 @@ import time
 import numpy as np
 import tensorflow as tf
 from data import *
+#from preprocessing import split_text_with_whitespace
 
-import re
+
 class Example(object):
     """Class representing a train/val/test example for text summarization."""
 
-    def __init__(self, context, current, summarization, vocab, hps):
+    def __init__(self, context, summarization, query, vocab, hps):
         """Initializes the Example, 
         performing tokenization and truncation to produce the encoder, decoder and target sequences, which are stored in self.
 
         Args:
             article: source text; a string. each token is separated by a single space.
-            current: current utterance
             summarization_sentences: list of strings, one per summarization sentence. 
             In each sentence, each token is separated by a single space.
             vocab: Vocabulary object
@@ -42,20 +28,19 @@ class Example(object):
         """
         self.hps = hps
 
-        # Get ids of special tokens
         start_decoding = vocab.word2id(MARK_GO)
         stop_decoding = vocab.word2id(MARK_EOS)
 
         context_words = split_text_with_whitespace(context) + [MARK_EOS]
-        query_words = split_text_with_whitespace(current) + [MARK_EOS]
         # if len(context_words) > hps.max_enc_steps:
         #     context_words = context_words[:hps.max_enc_steps]
         self.enc_len = len(context_words)
-        self.current_len = len(query_words)
         self.enc_input = [vocab.word2id(w) for w in context_words]
-        self.current_input = [vocab.word2id(w) for w in query_words]
 
-        # Process the summarization
+        query_words = split_text_with_whitespace(query) + [MARK_EOS] # + ' '
+        self.query_len = len(query_words)
+        self.query_input = [vocab.word2id(w) for w in query_words]
+
         summarization_words = split_text_with_whitespace(summarization)
         summarization_ids = [vocab.word2id(w) for w in summarization_words]
 
@@ -66,27 +51,24 @@ class Example(object):
             stop_decoding)
         self.dec_len = len(self.dec_input)
 
-        # If using pointer-generator mode, we need to store some extra info
-        if hps.pointer_gen:
-            # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
-            self.enc_input_extend_vocab, self.context_oovs ,\
-                self.current_input_extend_vocab,self.current_oovs = context2ids(
-                context_words, query_words, vocab)
+        # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; 
+        # also store the in-article OOVs words themselves
+        self.enc_input_extend_vocab, self.oovs = context2ids(context_words, vocab)
+        self.query_input_extend_vocab, self.oovs = query2ids(query_words, vocab, self.oovs)
 
-            # Get a verison of the reference summary where in-article OOVs are represented by their temporary article OOV id
-            abs_ids_extend_vocab = summarization2ids(summarization_words,
-                                                     vocab, self.context_oovs, self.current_oovs)
+        # Get a verison of the reference summary where in-article OOVs are represented by their temporary article OOV id
+        abs_ids_extend_vocab = summarization2ids(summarization_words, vocab, self.oovs)
 
-            # Overwrite decoder target sequence so it uses the temp article OOV ids
-            #todo: 为什么 decoder input不用重写扩展
-            _, self.target = self.get_dec_inp_targ_seqs(
-                abs_ids_extend_vocab, hps.max_dec_steps, start_decoding,
-                stop_decoding)
+        # Overwrite decoder target sequence so it uses the temp article OOV ids
+        #todo: 为什么 decoder input不用重写扩展
+        _, self.target = self.get_dec_inp_targ_seqs(
+            abs_ids_extend_vocab, hps.max_dec_steps, start_decoding,
+            stop_decoding)
 
         # Store the original strings
         self.original_context = context
-        self.original_current = current
         self.original_summarization = summarization
+	self.original_query = query
 
     def get_dec_inp_targ_seqs(self, sequence, max_len, start_id, stop_id):
         """Given the reference summary as a sequence of tokens, 
@@ -116,27 +98,21 @@ class Example(object):
 
     def pad_decoder_inp_targ(self, max_len, pad_id):
         """Pad decoder input and target sequences with pad_id up to max_len."""
-        while len(self.dec_input) < max_len:
-            self.dec_input.append(pad_id)
-        while len(self.target) < max_len:
-            self.target.append(pad_id)
+        self.dec_input += [pad_id] * (max_len - len(self.dec_input))
+        self.target += [pad_id] * (max_len - len(self.target))
 
     def pad_encoder_input(self, max_len, pad_id):
         """Pad the encoder input sequence with pad_id up to max_len."""
         #while len(self.enc_input) < max_len:
         self.enc_input += [pad_id] * (max_len - len(self.enc_input))
-        if self.hps.pointer_gen:
-            self.enc_input_extend_vocab += [pad_id] * (
-                max_len - len(self.enc_input_extend_vocab))
-            # while len(self.enc_input_extend_vocab) < max_len:
-            #     self.enc_input_extend_vocab.append(pad_id)
-    def pad_current_input(self, max_len, pad_id):
-        """Pad the encoder input sequence with pad_id up to max_len."""
-        #while len(self.enc_input) < max_len:
-        self.current_input += [pad_id] * (max_len - len(self.current_input))
-        if self.hps.pointer_gen:
-            self.current_input_extend_vocab += [pad_id] * (
-                max_len - len(self.current_input_extend_vocab))
+        self.enc_input_extend_vocab += [pad_id] * (
+            max_len - len(self.enc_input_extend_vocab))
+    
+    def pad_query_input(self, max_len, pad_id):
+        self.query_input += [pad_id] * (max_len - len(self.query_input))
+        self.query_input_extend_vocab += [pad_id] * (
+            max_len - len(self.query_input_extend_vocab))
+
 
 class Batch(object):
     """Class representing a minibatch of train/val/test examples for text summarization."""
@@ -151,14 +127,14 @@ class Batch(object):
         """
         self.pad_id = vocab.word2id(MARK_PAD)
         self.init_encoder_seq(example_list, hps)
-        self.init_current_seq(example_list, hps)
         self.init_decoder_seq(example_list, hps)
         self.store_orig_strings(example_list)  # store the original strings
 
     def init_encoder_seq(self, example_list, hps):
         """Initializes the following:
         self.enc_batch:
-            numpy array of shape (batch_size, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), padded to length of longest sequence in the batch
+            numpy array of shape (batch_size, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), 
+            padded to length of longest sequence in the batch
         self.enc_lens:
             numpy array of shape (batch_size) containing integers. The (truncated) length of each encoder input sequence (pre-padding).
         self.enc_padding_mask:
@@ -174,18 +150,23 @@ class Batch(object):
         """
         # Determine the maximum length of the encoder input sequence in this batch
         max_enc_seq_len = max([ex.enc_len for ex in example_list])
+        max_query_seq_len = max([ex.query_len for ex in example_list])
 
         # Pad the encoder input sequences up to the length of the longest sequence
         for ex in example_list:
             ex.pad_encoder_input(max_enc_seq_len, self.pad_id)
+            ex.pad_query_input(max_query_seq_len, self.pad_id)
 
         # Initialize the numpy arrays
         # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
-        self.enc_batch = np.zeros(
-            (hps.batch_size, max_enc_seq_len), dtype=np.int32)
+        self.enc_batch = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.int32)
         self.enc_lens = np.zeros((hps.batch_size), dtype=np.int32)
-        self.enc_padding_mask = np.zeros(
-            (hps.batch_size, max_enc_seq_len), dtype=np.float32)
+        self.enc_padding_mask = np.zeros((hps.batch_size, max_enc_seq_len), dtype=np.float32)
+
+        # query encoder part
+        self.query_batch = np.zeros((hps.batch_size, max_query_seq_len), dtype=np.int32)
+        self.query_lens = np.zeros((hps.batch_size), dtype=np.int32)
+        self.query_padding_mask = np.zeros((hps.batch_size, max_query_seq_len), dtype=np.float32)
 
         # Fill in the numpy arrays
         for i, ex in enumerate(example_list):
@@ -194,73 +175,26 @@ class Batch(object):
             for j in xrange(ex.enc_len):
                 self.enc_padding_mask[i][j] = 1
 
+            self.query_batch[i, :] = ex.query_input[:]
+            self.query_lens[i] = ex.query_len
+            for j in xrange(ex.query_len):
+                self.query_padding_mask[i][j] = 1
+
         # For pointer-generator mode, need to store some extra info
         if hps.pointer_gen:
             # Determine the max number of in-article OOVs in this batch
-            self.max_encoder_oovs = max(
-                [len(ex.context_oovs) for ex in example_list])
+            self.max_art_oovs = max([len(ex.oovs) for ex in example_list])
             # Store the in-article OOVs themselves
-            self.art_oovs = [ex.context_oovs for ex in example_list]
+            self.art_oovs = [ex.oovs for ex in example_list]
             # Store the version of the enc_batch that uses the article OOV ids
             self.enc_batch_extend_vocab = np.zeros(
                 (hps.batch_size, max_enc_seq_len), dtype=np.int32)
+            self.query_batch_extend_vocab = np.zeros(
+                (hps.batch_size, max_query_seq_len), dtype=np.int32)
             for i, ex in enumerate(example_list):
-                self.enc_batch_extend_vocab[
-                    i, :] = ex.enc_input_extend_vocab[:]
-
-    def init_current_seq(self, example_list, hps):
-        """Initializes the following:
-        self.enc_batch:
-            numpy array of shape (batch_size, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), padded to length of longest sequence in the batch
-        self.enc_lens:
-            numpy array of shape (batch_size) containing integers. The (truncated) length of each encoder input sequence (pre-padding).
-        self.enc_padding_mask:
-            numpy array of shape (batch_size, <=max_enc_steps), containing 1s and 0s. 1s correspond to real tokens in enc_batch and target_batch; 0s correspond to padding.
-
-        If hps.pointer_gen, additionally initializes the following:
-            self.max_art_oovs:
-                maximum number of in-article OOVs in the batch
-            self.art_oovs:
-                list of list of in-article OOVs (strings), for each example in the batch
-            self.enc_batch_extend_vocab:
-                Same as self.enc_batch, but in-article OOVs are represented by their temporary article OOV number.
-        """
-        # Determine the maximum length of the encoder input sequence in this batch
-        max_current_seq_len = max([ex.current_len for ex in example_list])
-
-        # Pad the encoder input sequences up to the length of the longest sequence
-        for ex in example_list:
-            ex.pad_current_input(max_current_seq_len, self.pad_id)
-
-        # Initialize the numpy arrays
-        # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
-        self.current_batch = np.zeros(
-            (hps.batch_size, max_current_seq_len), dtype=np.int32)
-        self.current_lens = np.zeros((hps.batch_size), dtype=np.int32)
-        self.current_padding_mask = np.zeros(
-            (hps.batch_size, max_current_seq_len), dtype=np.float32)
-
-        # Fill in the numpy arrays
-        for i, ex in enumerate(example_list):
-            self.current_batch[i, :] = ex.current_input[:]
-            self.current_lens[i] = ex.current_len
-            for j in xrange(ex.current_len):
-                self.current_padding_mask[i][j] = 1
-
-        # For pointer-generator mode, need to store some extra info
-        if hps.pointer_gen:
-            # Determine the max number of in-article OOVs in this batch
-            self.max_current_oovs = max(
-                [len(ex.current_oovs) for ex in example_list])
-            self.max_art_oovs = self.max_current_oovs + self.max_encoder_oovs
-            # Store the in-article OOVs themselves
-            self.art_oovs = [ex.current_oovs for ex in example_list]
-            # Store the version of the enc_batch that uses the article OOV ids
-            self.current_batch_extend_vocab = np.zeros(
-                (hps.batch_size, max_current_seq_len), dtype=np.int32)
-            for i, ex in enumerate(example_list):
-                self.current_batch_extend_vocab[
-                    i, :] = ex.current_input_extend_vocab[:]
+                self.enc_batch_extend_vocab[i, :] = ex.enc_input_extend_vocab[:]
+                self.query_batch_extend_vocab[i, :] = ex.query_input_extend_vocab[:]
+                    
 
     def init_decoder_seq(self, example_list, hps):
         """Initializes the following:
@@ -294,13 +228,8 @@ class Batch(object):
     def store_orig_strings(self, example_list):
         """Store the original article and abstract strings in the Batch object"""
         self.original_contexts = [ex.original_context for ex in example_list]
-        self.original_summarizations = [
-            ex.original_summarization for ex in example_list
-        ]
-        #todo: need to check
-        # self.original_summarizations_sents = [
-        #     ex.original_abstract_sents for ex in example_list
-        # ]  # list of list of lists
+        self.original_summarizations = [ex.original_summarization for ex in example_list]
+        self.original_querys = [ex.original_query for ex in example_list]
 
 
 class Batcher(object):
@@ -388,7 +317,7 @@ class Batcher(object):
 
         while True:
             try:
-                (context,current,summarization) = input_gen.next()
+                (context, summarization, query) = input_gen.next()
             except StopIteration:  # if there are no more examples:
                 tf.logging.info(
                     "The example generator for this example queue filling thread has exhausted data."
@@ -407,10 +336,8 @@ class Batcher(object):
             # abstract_sentences = [
             #     sent.strip() for sent in data.abstract2sents(abstract)
             # ]  # Use the <s> and </s> tags in abstract to get a list of sentences.
-            example = Example(context, current,summarization, self._vocab,
-                              self._hps)  # Process into an Example.
-            self._example_queue.put(
-                example)  # place the Example in the example queue.
+            example = Example(context, summarization, query, self._vocab, self._hps)
+            self._example_queue.put(example)
 
     def fill_batch_queue(self):
         """Takes Examples out of example queue, 
@@ -482,13 +409,9 @@ class Batcher(object):
                 with open(f) as train_f:
                     for line in train_f:
                         record = line.decode('utf-8').strip().split('\t\t')
-                        # context = sentence2id(record[0], vocab)
-                        # #todo: 待修改
-                        # summarization = [vocab.word2id(MARK_GO)] + sentence2id(
-                        #     record[1], vocab) + [vocab.word2id(MARK_EOS)]
-
-                        yield (record[0]+ MARK_EOS + record[1], record[2], record[2])
-                    #yield example_pb2.Example.FromString(example_str)
+                        if len(record) != 4:
+                            continue
+                        yield (record[0].strip()+ '/' +  record[1].strip(), record[3].strip(), record[2].strip())
             if single_pass:
                 print "text_generator completed reading all datafiles. No more data."
                 break
